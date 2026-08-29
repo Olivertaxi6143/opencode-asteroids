@@ -139,6 +139,13 @@ class Ship {
     if (this.dead) return;
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
+    // Speed power-up countdown
+    if (speedMultiplier > 1 && velocidadTimer > 0) {
+      velocidadTimer -= dt;
+      if (velocidadTimer <= 0) {
+        speedMultiplier = 1;
+      }
+    }
 
     const ROT   = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -149,8 +156,8 @@ class Ship {
 
     this.thrusting = !!keys['ArrowUp'];
     if (this.thrusting) {
-      this.vx += Math.cos(this.angle) * THRUST * dt;
-      this.vy += Math.sin(this.angle) * THRUST * dt;
+      this.vx += Math.cos(this.angle) * THRUST * speedMultiplier * dt;
+      this.vy += Math.sin(this.angle) * THRUST * speedMultiplier * dt;
     }
 
     this.vx *= DRAG;
@@ -235,11 +242,25 @@ class Particle {
   }
 }
 
+// ── Speed power-up ─────────────────────────────────────────────────────────────
+let velocidadPowerUp = null;
+
+class VelocidadPowerUp {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 10;
+    this.active = true;
+  }
+}
+
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
+let velocidadTimer;
+let speedMultiplier = 1;
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -262,6 +283,9 @@ function initGame() {
   lives  = 3;
   level  = 1;
   state  = 'playing';
+  velocidadPowerUp = null;
+  velocidadTimer = 0;
+  speedMultiplier = 1;
   spawnAsteroids(4);
 }
 
@@ -330,6 +354,10 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
+        // 20% chance to drop a speed power-up
+        if (Math.random() < 0.2) {
+          velocidadPowerUp = new VelocidadPowerUp(a.x, a.y);
+        }
       }
     }
   }
@@ -343,6 +371,15 @@ function update(dt) {
         killShip();
         break;
       }
+    }
+  }
+
+  // Speed power-up pickup
+  if (velocidadPowerUp && ship.invincible <= 0) {
+    if (dist(ship, velocidadPowerUp) < ship.radius + velocidadPowerUp.radius) {
+      speedMultiplier = 2;
+      velocidadTimer = 5;
+      velocidadPowerUp = null;
     }
   }
 
@@ -378,9 +415,17 @@ function drawHUD() {
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
 
+  // Speed power-up status
+  if (speedMultiplier > 1) {
+    ctx.fillStyle = '#ffff00';
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`DOBLE VELOCIDAD`, W / 2, 26);
+    ctx.fillStyle = '#fff';
+  }
+
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
-
 }
 
 function drawOverlay(title, sub) {
@@ -403,6 +448,26 @@ function draw() {
   ship.draw();
 
   drawHUD();
+
+  // Draw speed power-up
+  if (velocidadPowerUp) {
+    ctx.save();
+    ctx.translate(velocidadPowerUp.x, velocidadPowerUp.y);
+    ctx.fillStyle = '#ffff00';
+    ctx.beginPath();
+    ctx.arc(0, 0, velocidadPowerUp.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, -velocidadPowerUp.radius);
+    ctx.lineTo(0, -velocidadPowerUp.radius - 5);
+    ctx.lineTo(velocidadPowerUp.radius * 0.5, -velocidadPowerUp.radius - 2);
+    ctx.lineTo(0, -velocidadPowerUp.radius);
+    ctx.lineTo(-velocidadPowerUp.radius * 0.5, -velocidadPowerUp.radius - 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   if (state === 'gameover')
     drawOverlay('GAME OVER', `PUNTAJE: ${score}   —   ESPACIO PARA REINICIAR`);
