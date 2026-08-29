@@ -210,6 +210,75 @@ class Ship {
   }
 }
 
+// ── Estrella Fugaz (fast asteroid with trail) ────────────────────────────────
+class EstrellaFugaz {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 20;
+    this.dead = false;
+    this.ttl = 5.0; // lifetime in seconds
+
+    // Very fast and random direction
+    const angle = rand(0, Math.PI * 2);
+    const speed = 600 + rand(0, 300); // fast
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.rotSpeed = rand(3, 6);
+    this.rot = rand(0, Math.PI * 2);
+
+    // Trail particles: track a short path of positions.
+    // Position history is stored for trail drawing
+    this.trail = [];
+  }
+
+  update(dt) {
+    // Accumulate position for the trail
+    this.trail.unshift({ x: this.x, y: this.y });
+    if (this.trail.length > 10) this.trail.pop();
+
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.ttl -= dt;
+    this.rot += this.rotSpeed * dt;
+
+    if (this.ttl <= 0) this.dead = true;
+  }
+
+  draw() {
+    // Draw trail particles
+    this.trail.forEach((pos, i) => {
+      const alpha = (i / this.trail.length);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${(1 - alpha).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (this.trail.length > 1 && i < this.trail.length - 1) {
+        const prev = this.trail[i + 1];
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
+    });
+
+    // Draw the estrella fugaz shape (a bright streak)
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    // A simple "streak" shape
+    ctx.moveTo(0, -this.radius);
+    ctx.lineTo(this.radius / 2, this.radius);
+    ctx.lineTo(-this.radius / 2, this.radius);
+    ctx.lineTo(0, -this.radius);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // ── Partículas (explosión) ────────────────────────────────────────────────────
 class Particle {
   constructor(x, y) {
@@ -256,6 +325,7 @@ class VelocidadPowerUp {
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles;
+let estrellaFugaz;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -287,6 +357,14 @@ function initGame() {
   velocidadTimer = 0;
   speedMultiplier = 1;
   spawnAsteroids(4);
+  // Spawn one estrella fugaz per level
+  const safeDist = 150;
+  let x, y;
+  do {
+    x = rand(0, W);
+    y = rand(0, H);
+  } while (Math.hypot(x - W / 2, y - H / 2) < safeDist);
+  estrellaFugaz = new EstrellaFugaz(x, y);
 }
 
 function nextLevel() {
@@ -295,6 +373,14 @@ function nextLevel() {
   particles = [];
   ship.reset();
   spawnAsteroids(3 + level);
+  // Spawn one estrella fugaz per level at safe distance
+  const safeDist = 150;
+  let x, y;
+  do {
+    x = rand(0, W);
+    y = rand(0, H);
+  } while (Math.hypot(x - W / 2, y - H / 2) < safeDist);
+  estrellaFugaz = new EstrellaFugaz(x, y);
 }
 
 function explode(x, y, count = 8) {
@@ -341,6 +427,17 @@ function update(dt) {
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
 
+  // Update estrella fugaz
+  if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz) {
+    estrellaFugaz.update(dt);
+    // Remove trail particles that are too old / mark for cleanup
+    // (trail positions are stored within the object, no global cleanup needed)
+    if (estrellaFugaz.dead) {
+      score += 500; // points for shooting/disappearing estrella fugaz
+      estrellaFugaz = null;
+    }
+  }
+
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
 
@@ -364,12 +461,33 @@ function update(dt) {
   asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
   bullets   = bullets.filter(b => !b.dead);
 
+  // Bala vs estrella fugaz
+  if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz && !estrellaFugaz.dead) {
+    for (const b of bullets) {
+      if (!b.dead && dist(b, estrellaFugaz) < estrellaFugaz.radius) {
+        b.dead = true;
+        estrellaFugaz.dead = true;
+        score += 500;
+        explode(estrellaFugaz.x, estrellaFugaz.y, 16);
+        estrellaFugaz = null;
+        break; // only one bullet should hit it
+      }
+    }
+  }
+
   // Nave vs asteroide
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         killShip();
         break;
+      }
+    }
+    // Nave vs estrella fugaz - contacto instantáneo muerto
+    if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz && !estrellaFugaz.dead && ship.invincible <= 0) {
+      if (dist(ship, estrellaFugaz) < ship.radius + estrellaFugaz.radius) {
+        killShip();
+        estrellaFugaz = null;
       }
     }
   }
@@ -467,6 +585,11 @@ function draw() {
     ctx.lineTo(-velocidadPowerUp.radius * 0.5, -velocidadPowerUp.radius - 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // Draw estrella fugaz + trail
+  if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz) {
+    estrellaFugaz.draw();
   }
 
   if (state === 'gameover')
