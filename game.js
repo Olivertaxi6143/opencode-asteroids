@@ -14,6 +14,14 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
     e.preventDefault();
+  // Skin selection: 1-3 select skin, C cycles skins
+  if (e.code >= 'Digit1' && e.code <= 'Digit3') {
+    const n = parseInt(e.code.charAt(5), 10); // '1', '2', or '3'
+    currentSkin = skinIndex(n);
+  }
+  if (e.code === 'KeyC') {
+    currentSkin = skinIndex(currentSkin + 1);
+  }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -172,41 +180,105 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+    // Triple-shot: three parallel bullets spread across the ship
+    if (tripleShotTimer > 0) {
+      const SPREAD = 6;
+      return [new Bullet(ox, oy, this.angle),
+        new Bullet(ox + Math.sin(this.angle) * SPREAD, oy - Math.cos(this.angle) * SPREAD, this.angle),
+        new Bullet(ox - Math.sin(this.angle) * SPREAD, oy + Math.cos(this.angle) * SPREAD, this.angle)];
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
-  draw() {
+draw() {
     if (this.dead) return;
-    // Parpadeo durante invencibilidad de reaparición
+    // Parpadeo durante invencibilidad de reaparici�n
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
+
+    const skin = SKINS[currentSkin - 1];
 
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = skin.stroke;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
-    // Silueta clásica: triángulo con muesca trasera
-    ctx.beginPath();
-    ctx.moveTo( 20,  0);   // nariz
-    ctx.lineTo(-12, -9);   // ala izquierda
-    ctx.lineTo( -7,  0);   // muesca trasera
-    ctx.lineTo(-12,  9);   // ala derecha
-    ctx.closePath();
-    ctx.stroke();
+    // Three distinct geometric silhouettes, all facing positive X.
+    switch (currentSkin) {
+      case 1: // Interceptor: a narrow, angular fighter.
+        ctx.beginPath();
+        ctx.moveTo(20, 0);
+        ctx.lineTo(-8, -14);
+        ctx.lineTo(-8, 14);
+        ctx.closePath();
+        ctx.stroke();
+        // Narrow interceptor exhaust.
+        if (this.thrusting && Math.random() > 0.35) {
+          ctx.beginPath();
+          ctx.moveTo(-8, -4);
+          ctx.lineTo(-8 - rand(4, 8), 0);
+          ctx.lineTo(-8, 4);
+          ctx.strokeStyle = skin.thrust;
+          ctx.stroke();
+        }
+        break;
 
-    // Llama del propulsor
-    if (this.thrusting && Math.random() > 0.35) {
-      ctx.beginPath();
-      ctx.moveTo(-8, -4);
-      ctx.lineTo(-8 - rand(6, 14), 0);
-      ctx.lineTo(-8,  4);
-      ctx.strokeStyle = 'rgba(255, 130, 0, 0.85)';
-      ctx.stroke();
+      case 2: // Diamond Cruiser: a broad four-point ship.
+        ctx.beginPath();
+        ctx.moveTo(19, 0);
+        ctx.lineTo(-2, -16);
+        ctx.lineTo(-15, 0);
+        ctx.lineTo(-2, 16);
+        ctx.closePath();
+        ctx.stroke();
+        // Rear exhaust keeps the visual direction aligned with movement.
+        if (this.thrusting && Math.random() > 0.35) {
+          ctx.beginPath();
+          ctx.moveTo(-15, -5);
+          ctx.lineTo(-15 - rand(4, 10), 0);
+          ctx.lineTo(-15, 5);
+          ctx.strokeStyle = skin.thrust;
+          ctx.stroke();
+        }
+        break;
+
+      case 3: // Saucer: a rounded ship with a forward cockpit.
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 15, 9, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(5, 0, 6, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+        // Saucer exhaust.
+        if (this.thrusting && Math.random() > 0.35) {
+          ctx.beginPath();
+          ctx.moveTo(-15, -4);
+          ctx.lineTo(-15 - rand(5, 11), 0);
+          ctx.lineTo(-15, 4);
+          ctx.strokeStyle = skin.thrust;
+          ctx.stroke();
+        }
+        break;
     }
 
+  // Triple-shot power-up visual indicator
+  if (tripleShotTimer > 0) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    ctx.strokeStyle = '#ff00ff';
+    ctx.lineWidth = 1;
+    for (const offset of [-5, 0, 5]) {
+      ctx.beginPath();
+      ctx.moveTo(-5, offset);
+      ctx.lineTo(5, offset);
+      ctx.stroke();
+    }
     ctx.restore();
+  }
+
+ctx.restore();
   }
 }
 
@@ -313,8 +385,30 @@ class Particle {
 
 // ── Speed power-up ─────────────────────────────────────────────────────────────
 let velocidadPowerUp = null;
+let tripleShotPowerUp = null;
+
+// Skin system
+// Available ship skins: 1=white, 2=cyan, 3=yellow. Press 1-3 to select, press C to cycle.
+const SKINS = [
+  { name: 'White',        stroke: '#fff',    thrust: 'rgba(255, 130, 0, 0.85)' },
+  { name: 'Cyan',        stroke: '#0ff',    thrust: 'rgba(0, 255, 255, 0.85)' },
+  { name: 'Yellow',      stroke: '#ff0',    thrust: 'rgba(255, 255, 0, 0.85)' },
+];
+let currentSkin = 1; // 1-based index, matches SKINS array
+
+// Helper: wrap skin index into valid range
+function skinIndex(n) { return ((n - 1) % SKINS.length) + 1; }
 
 class VelocidadPowerUp {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 10;
+    this.active = true;
+  }
+}
+
+class TripleShotPowerUp {
   constructor(x, y) {
     this.x = x;
     this.y = y;
@@ -331,6 +425,10 @@ let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let velocidadTimer;
 let speedMultiplier = 1;
+let tripleShotTimer = 0;
+let escudoActivo = false;
+let tiempoEscudo = 0;
+let cooldownEscudo = 0;
 
 // Shooting star scheduler state
 let starSpawnTimer = 0;      // counts down to next star spawn (seconds)
@@ -425,6 +523,25 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
+  // --- Player shield ---
+  if (pressed('KeyC') && cooldownEscudo <= 0 && tiempoEscudo <= 0) {
+    escudoActivo = true;
+    tiempoEscudo = 5;
+    cooldownEscudo = 10;
+    ship.invincible = 5; // enables collision detection to work
+  }
+
+  // Shield countdown and cooldown
+  if (escudoActivo) {
+    tiempoEscudo -= dt;
+    if (tiempoEscudo <= 0) {
+      escudoActivo = false;
+    }
+  }
+  if (cooldownEscudo > 0) {
+    cooldownEscudo -= dt;
+  }
+
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
@@ -464,6 +581,10 @@ function update(dt) {
         // 20% chance to drop a speed power-up
         if (Math.random() < 0.2) {
           velocidadPowerUp = new VelocidadPowerUp(a.x, a.y);
+        }
+        // 20% chance to drop a triple-shot power-up
+        if (Math.random() < 0.2) {
+          tripleShotPowerUp = new TripleShotPowerUp(a.x, a.y);
         }
       }
     }
@@ -518,6 +639,14 @@ function update(dt) {
     }
   }
 
+  // Triple-shot power-up pickup
+  if (tripleShotPowerUp && ship.invincible <= 0) {
+    if (dist(ship, tripleShotPowerUp) < ship.radius + tripleShotPowerUp.radius) {
+      tripleShotTimer = 5;
+      tripleShotPowerUp = null;
+    }
+  }
+
   // Nivel completado
   if (asteroids.length === 0) nextLevel();
 }
@@ -558,6 +687,30 @@ function drawHUD() {
     ctx.fillText(`DOBLE VELOCIDAD`, W / 2, 26);
     ctx.fillStyle = '#fff';
   }
+
+  // Shield status
+  if (escudoActivo) {
+    ctx.fillStyle = '#00ffff';
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`ESCUDO ACTIVO`, W / 2, 36);
+    ctx.fillStyle = '#fff';
+  }
+
+  // Triple-shot power-up status
+  if (tripleShotTimer > 0) {
+    ctx.fillStyle = '#ff00ff';
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`TRIPLE SHOT`, W / 2, 46);
+    ctx.fillStyle = '#fff';
+  }
+
+  // Skin indicator and controls
+  ctx.fillStyle = '#0ff';
+  ctx.font = '15px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SKIN: ${SKINS[currentSkin - 1].name}  [1-3/C]`, 14, 52);
 
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
