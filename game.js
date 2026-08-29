@@ -210,21 +210,21 @@ class Ship {
   }
 }
 
-// ── Estrella Fugaz (fast asteroid with trail) ────────────────────────────────
+// ── Estrella Fugaz (shooting star) ──────────────────────────────────────────
 class EstrellaFugaz {
   constructor(x, y) {
     this.x = x;
     this.y = y;
     this.radius = 20;
     this.dead = false;
-    this.ttl = 5.0; // lifetime in seconds
+    this.ttl = 8.0; // lifetime in seconds
 
-    // Very fast and random direction
+    // Sensible speed, varied direction
     const angle = rand(0, Math.PI * 2);
-    const speed = 600 + rand(0, 300); // fast
+    const speed = 200 + rand(0, 100); // moderate
     this.vx = Math.cos(angle) * speed;
     this.vy = Math.sin(angle) * speed;
-    this.rotSpeed = rand(3, 6);
+    this.rotSpeed = rand(1, 3);
     this.rot = rand(0, Math.PI * 2);
 
     // Trail particles: track a short path of positions.
@@ -332,6 +332,19 @@ let deadTimer;
 let velocidadTimer;
 let speedMultiplier = 1;
 
+// Shooting star scheduler state
+let starSpawnTimer = 0;      // counts down to next star spawn (seconds)
+const MAX_CONCURRENT_STARS = 2;  // max active shooting stars at once
+
+function spawnStarSafe() {
+  let x, y;
+  do {
+    x = rand(0, W);
+    y = rand(0, H);
+  } while (Math.hypot(x - W / 2, y - H / 2) < 150);
+  return new EstrellaFugaz(x, y);
+}
+
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
   for (let i = 0; i < count; i++) {
@@ -357,14 +370,9 @@ function initGame() {
   velocidadTimer = 0;
   speedMultiplier = 1;
   spawnAsteroids(4);
-  // Spawn one estrella fugaz per level
-  const safeDist = 150;
-  let x, y;
-  do {
-    x = rand(0, W);
-    y = rand(0, H);
-  } while (Math.hypot(x - W / 2, y - H / 2) < safeDist);
-  estrellaFugaz = new EstrellaFugaz(x, y);
+  // Reset shooting star scheduler — stars spawn over time, not all at once
+  estrellaFugaz = [];
+  starSpawnTimer = rand(4, 8);  // first star spawns in 4–8 seconds
 }
 
 function nextLevel() {
@@ -373,14 +381,9 @@ function nextLevel() {
   particles = [];
   ship.reset();
   spawnAsteroids(3 + level);
-  // Spawn one estrella fugaz per level at safe distance
-  const safeDist = 150;
-  let x, y;
-  do {
-    x = rand(0, W);
-    y = rand(0, H);
-  } while (Math.hypot(x - W / 2, y - H / 2) < safeDist);
-  estrellaFugaz = new EstrellaFugaz(x, y);
+  // Reset shooting star scheduler — stars spawn over time, not all at once
+  estrellaFugaz = [];
+  starSpawnTimer = rand(4, 8);  // first star spawns in 4–8 seconds
 }
 
 function explode(x, y, count = 8) {
@@ -427,14 +430,21 @@ function update(dt) {
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
 
-  // Update estrella fugaz
-  if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz) {
-    estrellaFugaz.update(dt);
-    // Remove trail particles that are too old / mark for cleanup
-    // (trail positions are stored within the object, no global cleanup needed)
-    if (estrellaFugaz.dead) {
-      score += 500; // points for shooting/disappearing estrella fugaz
-      estrellaFugaz = null;
+  // Shooting star scheduler: spawn stars over time, cap concurrent
+  if (starSpawnTimer > 0) {
+    starSpawnTimer -= dt;
+    if (starSpawnTimer <= 0 && estrellaFugaz.length < MAX_CONCURRENT_STARS) {
+      estrellaFugaz.push(spawnStarSafe());
+      starSpawnTimer = rand(4, 8);
+    }
+  }
+
+  // Update existing stars and remove expired ones
+  for (let i = estrellaFugaz.length - 1; i >= 0; i--) {
+    const star = estrellaFugaz[i];
+    star.update(dt);
+    if (star.dead) {
+      estrellaFugaz.splice(i, 1);
     }
   }
 
@@ -462,15 +472,17 @@ function update(dt) {
   bullets   = bullets.filter(b => !b.dead);
 
   // Bala vs estrella fugaz
-  if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz && !estrellaFugaz.dead) {
-    for (const b of bullets) {
-      if (!b.dead && dist(b, estrellaFugaz) < estrellaFugaz.radius) {
-        b.dead = true;
-        estrellaFugaz.dead = true;
-        score += 500;
-        explode(estrellaFugaz.x, estrellaFugaz.y, 16);
-        estrellaFugaz = null;
-        break; // only one bullet should hit it
+  for (const b of bullets) {
+    if (b.dead) continue;
+    if (estrellaFugaz && estrellaFugaz.length > 0) {
+      for (const star of estrellaFugaz) {
+        if (!star.dead && dist(b, star) < star.radius) {
+          b.dead = true;
+          star.dead = true;
+          score += 500;
+          explode(star.x, star.y, 16);
+          break; // only one star per bullet
+        }
       }
     }
   }
@@ -484,10 +496,15 @@ function update(dt) {
       }
     }
     // Nave vs estrella fugaz - contacto instantáneo muerto
-    if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz && !estrellaFugaz.dead && ship.invincible <= 0) {
-      if (dist(ship, estrellaFugaz) < ship.radius + estrellaFugaz.radius) {
-        killShip();
-        estrellaFugaz = null;
+    if (ship.invincible <= 0) {
+      if (estrellaFugaz && estrellaFugaz.length > 0) {
+        for (const star of estrellaFugaz) {
+          if (!star.dead && dist(ship, star) < ship.radius + star.radius) {
+            killShip();
+            star.dead = true;
+            break; // only one star collision
+          }
+        }
       }
     }
   }
@@ -589,7 +606,7 @@ function draw() {
 
   // Draw estrella fugaz + trail
   if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz) {
-    estrellaFugaz.draw();
+    estrellaFugaz.forEach(star => star.draw());
   }
 
   if (state === 'gameover')
