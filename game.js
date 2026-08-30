@@ -757,6 +757,28 @@ function draw() {
     ctx.restore();
   }
 
+  // Draw triple-shot power-up: three small magenta projectiles to represent three shots
+  if (tripleShotPowerUp) {
+    ctx.save();
+    ctx.translate(tripleShotPowerUp.x, tripleShotPowerUp.y);
+    ctx.fillStyle = '#ff00ff';
+    const spread = 6;
+    for (const offset of [-spread, 0, spread]) {
+      ctx.beginPath();
+      ctx.arc(offset, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ff00ff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(offset - 3, -3);
+      ctx.lineTo(offset + 3, -3);
+      ctx.lineTo(offset, 3);
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Draw estrella fugaz + trail
   if (typeof estrellaFugaz !== 'undefined' && estrellaFugaz) {
     estrellaFugaz.forEach(star => star.draw());
