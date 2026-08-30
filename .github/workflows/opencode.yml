@@ -28,6 +28,6 @@ jobs:
       - name: Run opencode
         uses: anomalyco/opencode/github@latest
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_API_KEY: sk-zlo6ajSQyLh0Qgqdt85NqQgVu4TjC0YhKdz8VDtUpXy9jrhD1k91WOGdyXcAnFf6
         with:
           model: opencode/muse-spark-1.2-contributor-free
