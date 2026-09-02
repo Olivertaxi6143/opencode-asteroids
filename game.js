@@ -14,9 +14,9 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
     e.preventDefault();
-  // Skin selection: 1-3 select skin, C cycles skins
-  if (e.code >= 'Digit1' && e.code <= 'Digit3') {
-    const n = parseInt(e.code.charAt(5), 10); // '1', '2', or '3'
+  // Skin selection: 1-4 select skin, C cycles skins
+  if (e.code >= 'Digit1' && e.code <= 'Digit4') {
+    const n = parseInt(e.code.charAt(5), 10); // '1', '2', '3', or '4'
     currentSkin = skinIndex(n);
   }
   if (e.code === 'KeyC') {
@@ -136,7 +136,7 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
+    this.radius = 12 * currentScale();
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -145,6 +145,8 @@ class Ship {
 
   update(dt) {
     if (this.dead) return;
+    // Keep collision radius in sync when skin changes mid-game (purple is 2x)
+    this.radius = 12 * currentScale();
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     // Speed power-up countdown
@@ -177,7 +179,7 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * currentScale();
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     // Triple-shot: three parallel bullets spread across the ship
@@ -204,7 +206,7 @@ draw() {
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
-    // Three distinct geometric silhouettes, all facing positive X.
+    // Four distinct geometric silhouettes, all facing positive X.
     switch (currentSkin) {
       case 1: // Interceptor: a narrow, angular fighter.
         ctx.beginPath();
@@ -256,6 +258,24 @@ draw() {
           ctx.moveTo(-15, -4);
           ctx.lineTo(-15 - rand(5, 11), 0);
           ctx.lineTo(-15, 4);
+          ctx.strokeStyle = skin.thrust;
+          ctx.stroke();
+        }
+        break;
+
+      case 4: // Titan Morada: double-size interceptor, purple, double points.
+        ctx.beginPath();
+        ctx.moveTo(40, 0);
+        ctx.lineTo(-16, -28);
+        ctx.lineTo(-16, 28);
+        ctx.closePath();
+        ctx.stroke();
+        // Wider exhaust scaled 2x.
+        if (this.thrusting && Math.random() > 0.35) {
+          ctx.beginPath();
+          ctx.moveTo(-16, -8);
+          ctx.lineTo(-16 - rand(8, 16), 0);
+          ctx.lineTo(-16, 8);
           ctx.strokeStyle = skin.thrust;
           ctx.stroke();
         }
@@ -388,16 +408,21 @@ let velocidadPowerUp = null;
 let tripleShotPowerUp = null;
 
 // Skin system
-// Available ship skins: 1=white, 2=cyan, 3=yellow. Press 1-3 to select, press C to cycle.
+// Available ship skins: 1=white, 2=cyan, 3=yellow, 4=morada (purple, double size, double points). Press 1-4 to select, press C to cycle.
 const SKINS = [
-  { name: 'White',        stroke: '#fff',    thrust: 'rgba(255, 130, 0, 0.85)' },
-  { name: 'Cyan',        stroke: '#0ff',    thrust: 'rgba(0, 255, 255, 0.85)' },
-  { name: 'Yellow',      stroke: '#ff0',    thrust: 'rgba(255, 255, 0, 0.85)' },
+  { name: 'White',        stroke: '#fff',    thrust: 'rgba(255, 130, 0, 0.85)', scale: 1, scoreMult: 1 },
+  { name: 'Cyan',        stroke: '#0ff',    thrust: 'rgba(0, 255, 255, 0.85)', scale: 1, scoreMult: 1 },
+  { name: 'Yellow',      stroke: '#ff0',    thrust: 'rgba(255, 255, 0, 0.85)', scale: 1, scoreMult: 1 },
+  { name: 'Morada',      stroke: '#a020f0', thrust: 'rgba(160, 32, 240, 0.85)', scale: 2, scoreMult: 2 },
 ];
 let currentSkin = 1; // 1-based index, matches SKINS array
 
 // Helper: wrap skin index into valid range
 function skinIndex(n) { return ((n - 1) % SKINS.length) + 1; }
+
+// Helper: current skin helpers (purple ship is 2x size and 2x points)
+function currentScale() { return (SKINS[currentSkin - 1].scale || 1); }
+function currentScoreMult() { return (SKINS[currentSkin - 1].scoreMult || 1); }
 
 class VelocidadPowerUp {
   constructor(x, y) {
@@ -575,7 +600,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        score += POINTS[a.size] * currentScoreMult();
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
         // 20% chance to drop a speed power-up
@@ -600,7 +625,7 @@ function update(dt) {
         if (!star.dead && dist(b, star) < star.radius) {
           b.dead = true;
           star.dead = true;
-          score += 500;
+          score += 500 * currentScoreMult();
           explode(star.x, star.y, 16);
           break; // only one star per bullet
         }
@@ -706,11 +731,21 @@ function drawHUD() {
     ctx.fillStyle = '#fff';
   }
 
+  // Purple ship double-points indicator
+  if (currentScoreMult() > 1) {
+    ctx.fillStyle = '#a020f0';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`DOBLE PUNTOS x2`, W / 2, 62);
+    ctx.fillStyle = '#fff';
+  }
+
   // Skin indicator and controls
   ctx.fillStyle = '#0ff';
   ctx.font = '15px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`SKIN: ${SKINS[currentSkin - 1].name}  [1-3/C]`, 14, 52);
+  const multLabel = currentScoreMult() > 1 ? ' (x2 PUNTOS)' : '';
+  ctx.fillText(`SKIN: ${SKINS[currentSkin - 1].name}${multLabel}  [1-4/C]`, 14, 52);
 
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
